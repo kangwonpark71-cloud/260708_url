@@ -127,18 +127,15 @@
     <h1>🔗 URL Shortener</h1>
     <p class="subtitle">Paste a long URL to make it short</p>
 
-    <form id="shortenForm">
-      <div class="input-group">
-        <input
-          type="url"
-          id="urlInput"
-          placeholder="https://example.com/very/long/url"
-          required
-          autofocus
-        />
-        <button type="submit" id="submitBtn">Shorten</button>
-      </div>
-    </form>
+    <div class="input-group">
+      <input
+        type="url"
+        id="urlInput"
+        placeholder="https://example.com/very/long/url"
+        autofocus
+      />
+      <button type="button" id="submitBtn">Shorten</button>
+    </div>
 
     <div class="error" id="errorMsg"></div>
     <div class="result" id="resultBox">
@@ -151,7 +148,6 @@
   </div>
 
   <script>
-    const form = document.getElementById('shortenForm');
     const urlInput = document.getElementById('urlInput');
     const submitBtn = document.getElementById('submitBtn');
     const resultBox = document.getElementById('resultBox');
@@ -159,9 +155,7 @@
     const copyBtn = document.getElementById('copyBtn');
     const errorMsg = document.getElementById('errorMsg');
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-
+    async function handleShorten() {
       const url = urlInput.value.trim();
       if (!url) return;
 
@@ -199,6 +193,14 @@
         submitBtn.disabled = false;
         submitBtn.textContent = 'Shorten';
       }
+    }
+
+    submitBtn.addEventListener('click', handleShorten);
+    urlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleShorten();
+      }
     });
 
     copyBtn.addEventListener('click', async () => {
@@ -207,7 +209,6 @@
         copyBtn.textContent = 'Copied!';
         copyBtn.classList.add('copied');
       } catch {
-        // Fallback
         const range = document.createRange();
         range.selectNodeContents(shortUrlLink);
         const sel = window.getSelection();
@@ -220,7 +221,6 @@
       }
     });
 
-    // Auto-focus input
     urlInput.focus();
   </script>
 </body>
