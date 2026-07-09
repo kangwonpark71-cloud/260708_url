@@ -138,11 +138,11 @@
     </div>
 
     <div class="error" id="errorMsg"></div>
-    <div class="result" id="resultBox">
-      <div class="result-label">Your shortened URL</div>
-      <div class="result-url">
-        <a id="shortUrlLink" href="#" target="_blank"></a>
-        <button class="copy-btn" id="copyBtn">Copy</button>
+    <div id="resultBox" style="display:none; margin-top:1.5rem; padding:1rem; background:#f8f9ff; border-radius:10px; border:1px solid #e8eaff;">
+      <div style="font-size:0.8rem; color:#888; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:0.4rem;">Your shortened URL</div>
+      <div style="display:flex; align-items:center; gap:0.5rem;">
+        <a id="shortUrlLink" href="#" target="_blank" style="color:#667eea; text-decoration:none; font-weight:500; word-break:break-all;"></a>
+        <button class="copy-btn" id="copyBtn" style="background:#e8eaff; border:none; border-radius:6px; padding:0.4rem 0.8rem; font-size:0.8rem; cursor:pointer; color:#667eea; font-weight:500; white-space:nowrap; flex-shrink:0;">Copy</button>
       </div>
     </div>
   </div>
@@ -155,12 +155,24 @@
     const copyBtn = document.getElementById('copyBtn');
     const errorMsg = document.getElementById('errorMsg');
 
+    let isLoading = false;
+
+    function showResult(show) {
+      resultBox.style.display = show ? 'block' : 'none';
+    }
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.style.display = msg ? 'block' : 'none';
+    }
+
     async function handleShorten() {
+      if (isLoading) return;
       const url = urlInput.value.trim();
       if (!url) return;
 
-      errorMsg.classList.remove('show');
-      resultBox.classList.remove('show');
+      isLoading = true;
+      showError('');
+      showResult(false);
 
       submitBtn.disabled = true;
       submitBtn.textContent = 'Shortening...';
@@ -175,21 +187,21 @@
         const data = await res.json();
 
         if (!res.ok) {
-          errorMsg.textContent = data.error || 'Something went wrong';
-          errorMsg.classList.add('show');
+          showError(data.error || 'Something went wrong');
           return;
         }
 
         shortUrlLink.href = data.short_url;
         shortUrlLink.textContent = data.short_url;
-        resultBox.classList.add('show');
         copyBtn.textContent = 'Copy';
-        copyBtn.classList.remove('copied');
+        copyBtn.style.background = '#e8eaff';
+        copyBtn.style.color = '#667eea';
+        showResult(true);
         urlInput.value = '';
       } catch (err) {
-        errorMsg.textContent = 'Network error. Please try again.';
-        errorMsg.classList.add('show');
+        showError('Network error. Please try again.');
       } finally {
+        isLoading = false;
         submitBtn.disabled = false;
         submitBtn.textContent = 'Shorten';
       }
@@ -204,10 +216,13 @@
     });
 
     copyBtn.addEventListener('click', async () => {
+      const url = shortUrlLink.href;
+      if (!url || url === '#') return;
       try {
-        await navigator.clipboard.writeText(shortUrlLink.href);
+        await navigator.clipboard.writeText(url);
         copyBtn.textContent = 'Copied!';
-        copyBtn.classList.add('copied');
+        copyBtn.style.background = '#d4edda';
+        copyBtn.style.color = '#155724';
       } catch {
         const range = document.createRange();
         range.selectNodeContents(shortUrlLink);
@@ -217,7 +232,8 @@
         document.execCommand('copy');
         sel.removeAllRanges();
         copyBtn.textContent = 'Copied!';
-        copyBtn.classList.add('copied');
+        copyBtn.style.background = '#d4edda';
+        copyBtn.style.color = '#155724';
       }
     });
 
