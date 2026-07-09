@@ -15,6 +15,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+app.get('/favicon.ico', (_req: Request, res: Response): void => {
+  res.status(204).end();
+});
+
 app.post('/api/shorten', (req: Request, res: Response): void => {
   const { url } = req.body;
 
