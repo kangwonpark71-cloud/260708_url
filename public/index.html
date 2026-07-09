@@ -161,11 +161,12 @@
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      errorMsg.classList.remove('show');
-      resultBox.classList.remove('show');
 
       const url = urlInput.value.trim();
       if (!url) return;
+
+      errorMsg.classList.remove('show');
+      resultBox.classList.remove('show');
 
       submitBtn.disabled = true;
       submitBtn.textContent = 'Shortening...';
