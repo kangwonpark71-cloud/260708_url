@@ -132,112 +132,189 @@
         type="url"
         id="urlInput"
         placeholder="https://example.com/very/long/url"
-        autofocus
       />
       <button type="button" id="submitBtn">Shorten</button>
     </div>
 
-    <div class="error" id="errorMsg"></div>
-    <div id="resultBox" style="display:none; margin-top:1.5rem; padding:1rem; background:#f8f9ff; border-radius:10px; border:1px solid #e8eaff;">
-      <div style="font-size:0.8rem; color:#888; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:0.4rem;">Your shortened URL</div>
-      <div style="display:flex; align-items:center; gap:0.5rem;">
-        <a id="shortUrlLink" href="#" target="_blank" style="color:#667eea; text-decoration:none; font-weight:500; word-break:break-all;"></a>
-        <button class="copy-btn" id="copyBtn" style="background:#e8eaff; border:none; border-radius:6px; padding:0.4rem 0.8rem; font-size:0.8rem; cursor:pointer; color:#667eea; font-weight:500; white-space:nowrap; flex-shrink:0;">Copy</button>
-      </div>
-    </div>
+    <div id="errorMsg" style="margin-top:0.5rem;display:none"></div>
+
+    <div id="resultBox" style="display:none"></div>
   </div>
 
+  <div id="debug" style="position:fixed;bottom:0;left:0;right:0;background:#111;color:#0f0;font:12px/1.5 monospace;padding:8px 12px;z-index:9999;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all;"></div>
   <script>
-    const urlInput = document.getElementById('urlInput');
-    const submitBtn = document.getElementById('submitBtn');
-    const resultBox = document.getElementById('resultBox');
-    const shortUrlLink = document.getElementById('shortUrlLink');
-    const copyBtn = document.getElementById('copyBtn');
-    const errorMsg = document.getElementById('errorMsg');
+    (function() {
+      var PAGE_ID = Date.now();
+      var debugEl = document.getElementById('debug');
+      var logCount = 0;
+      function log(msg) {
+        logCount++;
+        var t = new Date().toISOString().substr(11,12);
+        debugEl.textContent += '[' + t + '#' + logCount + '] ' + msg + '\n';
+        debugEl.scrollTop = debugEl.scrollHeight;
+        console.log('[DEBUG#' + logCount + '] ' + msg);
+      }
+      log('PAGE_LOADED page_id=' + PAGE_ID + ' url=' + location.href);
 
-    let isLoading = false;
+      // Detect page unload (navigation/reload)
+      window.addEventListener('beforeunload', function() {
+        log('BEFOREUNLOAD fired! page_id=' + PAGE_ID);
+      });
+      window.addEventListener('unload', function() {
+        log('UNLOAD fired!');
+      });
 
-    function showResult(show) {
-      resultBox.style.display = show ? 'block' : 'none';
-    }
-    function showError(msg) {
-      errorMsg.textContent = msg;
-      errorMsg.style.display = msg ? 'block' : 'none';
-    }
+      // Detect popstate (back/forward navigation)
+      window.addEventListener('popstate', function() {
+        log('POPSTATE fired!');
+      });
 
-    async function handleShorten() {
-      if (isLoading) return;
-      const url = urlInput.value.trim();
-      if (!url) return;
+      var urlInput = document.getElementById('urlInput');
+      var submitBtn = document.getElementById('submitBtn');
+      var resultBox = document.getElementById('resultBox');
+      var errorMsg = document.getElementById('errorMsg');
+      var isLoading = false;
 
-      isLoading = true;
-      showError('');
-      showResult(false);
-
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Shortening...';
-
-      try {
-        const res = await fetch('/api/shorten', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
+      // MutationObserver: watch resultBox for ANY changes
+      var observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(m) {
+          log('MUTATION type=' + m.type + ' target=' + m.target.id + ' added=' + m.addedNodes.length + ' removed=' + m.removedNodes.length + ' attr=' + (m.attributeName || 'none'));
+          if (m.type === 'attributes' && m.attributeName === 'style') {
+            log('  resultBox style changed to: ' + resultBox.getAttribute('style'));
+          }
         });
+      });
+      observer.observe(resultBox, { attributes: true, childList: true, subtree: true, attributeOldValue: true });
+      log('MutationObserver attached to resultBox');
 
-        const data = await res.json();
+      // MutationObserver on entire body
+      var bodyObserver = new MutationObserver(function(mutations) {
+        mutations.forEach(function(m) {
+          if (m.type === 'childList' && m.removedNodes.length > 0) {
+            for (var i = 0; i < m.removedNodes.length; i++) {
+              var n = m.removedNodes[i];
+              if (n.nodeType === 1) log('BODY_CHILD_REMOVED tag=' + n.tagName + ' id=' + n.id);
+            }
+          }
+        });
+      });
+      bodyObserver.observe(document.body, { childList: true, subtree: true });
+      log('Body-level MutationObserver attached');
 
-        if (!res.ok) {
-          showError(data.error || 'Something went wrong');
-          return;
+      // Watch for hash changes
+      window.addEventListener('hashchange', function() {
+        log('HASHCHANGE new_hash=' + location.hash);
+      });
+
+      function setResult(html) {
+        log('setResult called, html length=' + (html ? html.length : 0));
+        resultBox.innerHTML = html;
+        resultBox.style.display = html ? 'block' : 'none';
+        log('resultBox display=' + resultBox.style.display + ' innerHTML length=' + resultBox.innerHTML.length);
+      }
+
+      function setError(msg) {
+        log('setError: ' + msg);
+        errorMsg.textContent = msg;
+        errorMsg.style.color = '#dc3545';
+        errorMsg.style.display = msg ? 'block' : 'none';
+      }
+
+      async function handleShorten() {
+        log('handleShorten START isLoading=' + isLoading);
+        if (isLoading) return;
+        var url = urlInput.value.trim();
+        if (!url) { log('handleShorten: empty URL, returning'); return; }
+
+        isLoading = true;
+        setError('');
+        setResult('');
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Shortening...';
+
+        try {
+          log('fetch POST /api/shorten url=' + url);
+          var res = await fetch('/api/shorten', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
+          });
+          log('fetch response status=' + res.status + ' ok=' + res.ok);
+
+          var data = await res.json();
+          log('fetch data: ' + JSON.stringify(data));
+
+          if (!res.ok) {
+            setError(data.error || 'Something went wrong');
+            return;
+          }
+
+          var shortUrl = data.short_url;
+          var escaped = shortUrl.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+          log('setResult with short_url=' + shortUrl);
+
+          setResult(
+            '<div style="font-size:0.8rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.4rem">Your shortened URL</div>' +
+            '<div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' +
+              '<a href="' + escaped + '" target="_blank" style="color:#667eea;text-decoration:none;font-weight:500;word-break:break-all">' + escaped + '</a>' +
+              '<button id="copyBtn" style="background:#e8eaff;border:none;border-radius:6px;padding:0.4rem 0.8rem;font-size:0.8rem;cursor:pointer;color:#667eea;font-weight:500;white-space:nowrap;flex-shrink:0">Copy</button>' +
+            '</div>' +
+            '<div style="margin-top:0.5rem;font-size:0.75rem;color:#aaa">page:' + PAGE_ID + ' | short:' + data.short_key + '</div>'
+          );
+
+          log('resultBox after set: display=' + resultBox.style.display + ' childNodes=' + resultBox.childNodes.length);
+
+          var copyBtn = document.getElementById('copyBtn');
+          if (copyBtn) {
+            copyBtn.addEventListener('click', function() {
+              try {
+                navigator.clipboard.writeText(shortUrl).then(function() {
+                  copyBtn.textContent = 'Copied!';
+                  copyBtn.style.background = '#d4edda';
+                  copyBtn.style.color = '#155724';
+                });
+              } catch(e) {
+                var ta = document.createElement('textarea');
+                ta.value = shortUrl;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                copyBtn.textContent = 'Copied!';
+                copyBtn.style.background = '#d4edda';
+                copyBtn.style.color = '#155724';
+              }
+            });
+            log('copyBtn listener attached');
+          } else {
+            log('WARNING: copyBtn not found in DOM after setResult!');
+          }
+
+          urlInput.value = '';
+          log('handleShorten SUCCESS');
+        } catch (err) {
+          log('handleShorten ERROR: ' + err);
+          setError('Network error. Please try again.');
+        } finally {
+          isLoading = false;
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Shorten';
         }
-
-        shortUrlLink.href = data.short_url;
-        shortUrlLink.textContent = data.short_url;
-        copyBtn.textContent = 'Copy';
-        copyBtn.style.background = '#e8eaff';
-        copyBtn.style.color = '#667eea';
-        showResult(true);
-        urlInput.value = '';
-      } catch (err) {
-        showError('Network error. Please try again.');
-      } finally {
-        isLoading = false;
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Shorten';
       }
-    }
 
-    submitBtn.addEventListener('click', handleShorten);
-    urlInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        handleShorten();
-      }
-    });
+      submitBtn.addEventListener('click', function() { log('submitBtn CLICK'); handleShorten(); });
+      urlInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          log('Enter KEYDOWN');
+          handleShorten();
+        }
+      });
 
-    copyBtn.addEventListener('click', async () => {
-      const url = shortUrlLink.href;
-      if (!url || url === '#') return;
-      try {
-        await navigator.clipboard.writeText(url);
-        copyBtn.textContent = 'Copied!';
-        copyBtn.style.background = '#d4edda';
-        copyBtn.style.color = '#155724';
-      } catch {
-        const range = document.createRange();
-        range.selectNodeContents(shortUrlLink);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-        document.execCommand('copy');
-        sel.removeAllRanges();
-        copyBtn.textContent = 'Copied!';
-        copyBtn.style.background = '#d4edda';
-        copyBtn.style.color = '#155724';
-      }
-    });
-
-    urlInput.focus();
+      urlInput.focus();
+      log('init complete');
+    })();
   </script>
 </body>
 </html>

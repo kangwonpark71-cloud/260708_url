@@ -13,9 +13,17 @@ const nanoid = customAlphabet(
   7
 );
 
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} host=${req.get('host')} proto=${req.protocol}`);
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: 0, etag: false }));
 
 app.get('/favicon.ico', (_req: Request, res: Response): void => {
   res.status(204).end();
