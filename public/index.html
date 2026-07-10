@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>URL Shortener</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
@@ -40,7 +43,7 @@
       display: flex;
       gap: 0.5rem;
     }
-    input[type="text"] {
+    .input-group input[type="text"] {
       flex: 1;
       padding: 0.85rem 1rem;
       border: 2px solid #e0e0e0;
@@ -48,11 +51,11 @@
       font-size: 1rem;
       transition: border-color 0.2s;
     }
-    input[type="text"]:focus {
+    .input-group input[type="text"]:focus {
       outline: none;
       border-color: #667eea;
     }
-    button {
+    .btn-submit {
       padding: 0.85rem 1.5rem;
       background: linear-gradient(135deg, #667eea, #764ba2);
       color: white;
@@ -64,9 +67,9 @@
       transition: opacity 0.2s, transform 0.1s;
       white-space: nowrap;
     }
-    button:hover { opacity: 0.9; }
-    button:active { transform: scale(0.97); }
-    button:disabled {
+    .btn-submit:hover { opacity: 0.9; }
+    .btn-submit:active { transform: scale(0.97); }
+    .btn-submit:disabled {
       opacity: 0.6;
       cursor: not-allowed;
     }
@@ -75,7 +78,7 @@
       font-size: 0.9rem;
       margin-top: 0.5rem;
     }
-    .result {
+    .result-box {
       margin-top: 1.5rem;
       padding: 1rem;
       background: #f8f9ff;
@@ -124,18 +127,19 @@
     <h1>🔗 URL Shortener</h1>
     <p class="subtitle">Paste a long URL to make it short</p>
 
-    <form id="shortenForm" onsubmit="return false" style="margin:0;padding:0">
+    <form id="shortenForm" method="POST" action="/shorten">
       <div class="input-group">
         <input
           type="text"
           id="urlInput"
+          name="url"
           placeholder="https://example.com/very/long/url"
           autocomplete="off"
           autocorrect="off"
           autocapitalize="off"
           spellcheck="false"
         />
-        <button type="submit" id="submitBtn">Shorten</button>
+        <button type="submit" id="submitBtn" class="btn-submit">Shorten</button>
       </div>
     </form>
 
@@ -146,18 +150,30 @@
   <script>
     (function() {
       var STORAGE_KEY = 'url_shortener_result';
-      var STORAGE_TTL = 60000;
-      var shortenForm = document.getElementById('shortenForm');
+      var STORAGE_TTL = 120000;
+      var form = document.getElementById('shortenForm');
       var urlInput = document.getElementById('urlInput');
       var submitBtn = document.getElementById('submitBtn');
       var resultBox = document.getElementById('resultBox');
       var errorMsg = document.getElementById('errorMsg');
       var isLoading = false;
 
-      // Restore result from localStorage (handles page reload / bfcache)
+      var params = new URLSearchParams(location.search);
+      var serverShort = params.get('short');
+      var serverKey = params.get('key');
+      var serverError = params.get('error');
+
+      if (serverShort && serverKey) {
+        var escaped = serverShort.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        renderResult(escaped, serverKey, serverShort);
+        history.replaceState(null, '', '/');
+      } else if (serverError) {
+        showError(serverError);
+        history.replaceState(null, '', '/');
+      }
+
       restoreFromStorage();
 
-      // Also listen for pageshow (bfcache restoration)
       window.addEventListener('pageshow', function(e) {
         if (e.persisted) {
           restoreFromStorage();
@@ -169,14 +185,17 @@
           var saved = localStorage.getItem(STORAGE_KEY);
           if (!saved) return;
           var data = JSON.parse(saved);
-          if (!data || !data.html || !data.timestamp) return;
+          if (!data || !data.html || !data.timestamp) {
+            localStorage.removeItem(STORAGE_KEY);
+            return;
+          }
           if (Date.now() - data.timestamp > STORAGE_TTL) {
             localStorage.removeItem(STORAGE_KEY);
             return;
           }
           resultBox.innerHTML = data.html;
           resultBox.style.display = 'block';
-          attachCopyListener(data.shortUrl);
+          attachCopyBtn(data.shortUrl);
         } catch(e) { /* ignore */ }
       }
 
@@ -190,38 +209,52 @@
         } catch(e) { /* ignore */ }
       }
 
-      function attachCopyListener(shortUrl) {
-        var copyBtn = document.getElementById('copyBtn');
-        if (!copyBtn) return;
-        copyBtn.addEventListener('click', function() {
-          if (copyBtn.classList.contains('copied')) return;
-          var onSuccess = function() {
-            copyBtn.textContent = 'Copied!';
-            copyBtn.classList.add('copied');
+      function renderResult(escaped, shortKey, shortUrl) {
+        var html =
+          '<div class="result-box">' +
+            '<div class="result-label">Your shortened URL</div>' +
+            '<div class="result-url">' +
+              '<a href="' + escaped + '" target="_blank" rel="noopener">' + escaped + '</a>' +
+              '<button id="copyBtn" class="copy-btn" type="button">Copy</button>' +
+            '</div>' +
+          '</div>';
+        resultBox.innerHTML = html;
+        resultBox.style.display = 'block';
+        saveToStorage(html, shortUrl);
+        attachCopyBtn(shortUrl);
+      }
+
+      function attachCopyBtn(shortUrl) {
+        var btn = document.getElementById('copyBtn');
+        if (!btn) return;
+        btn.addEventListener('click', function() {
+          if (btn.classList.contains('copied')) return;
+          var ok = function() {
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
           };
           try {
-            navigator.clipboard.writeText(shortUrl).then(onSuccess);
+            navigator.clipboard.writeText(shortUrl).then(ok);
           } catch(e) {
             var ta = document.createElement('textarea');
             ta.value = shortUrl;
-            ta.style.position = 'fixed';
-            ta.style.opacity = '0';
+            ta.style.cssText = 'position:fixed;opacity:0';
             document.body.appendChild(ta);
             ta.select();
             document.execCommand('copy');
             document.body.removeChild(ta);
-            onSuccess();
+            ok();
           }
         });
       }
 
-      shortenForm.addEventListener('submit', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        handleShorten();
-      });
+      function showError(msg) {
+        errorMsg.textContent = msg;
+        errorMsg.style.display = 'block';
+      }
 
-      async function handleShorten() {
+      form.addEventListener('submit', function(e) {
+        e.preventDefault();
         if (isLoading) return;
         var url = urlInput.value.trim();
         if (!url) return;
@@ -235,47 +268,30 @@
         submitBtn.disabled = true;
         submitBtn.textContent = 'Shortening...';
 
-        try {
-          var res = await fetch('/api/shorten', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url })
-          });
-          var data = await res.json();
-
-          if (!res.ok) {
-            errorMsg.textContent = data.error || 'Something went wrong';
-            errorMsg.style.display = 'block';
+        fetch('/api/shorten', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: url })
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.error) {
+            showError(data.error);
             return;
           }
-
-          var shortUrl = data.short_url;
-          var escaped = shortUrl.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-
-          var html =
-            '<div class="result">' +
-              '<div class="result-label">Your shortened URL</div>' +
-              '<div class="result-url">' +
-                '<a href="' + escaped + '" target="_blank" rel="noopener">' + escaped + '</a>' +
-                '<button id="copyBtn" class="copy-btn" type="button">Copy</button>' +
-              '</div>' +
-            '</div>';
-
-          resultBox.innerHTML = html;
-          resultBox.style.display = 'block';
-          saveToStorage(html, shortUrl);
-          attachCopyListener(shortUrl);
-
+          var escaped = data.short_url.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+          renderResult(escaped, data.short_key, data.short_url);
           urlInput.value = '';
-        } catch(err) {
-          errorMsg.textContent = 'Network error. Please try again.';
-          errorMsg.style.display = 'block';
-        } finally {
+        })
+        .catch(function() {
+          form.submit();
+        })
+        .finally(function() {
           isLoading = false;
           submitBtn.disabled = false;
           submitBtn.textContent = 'Shorten';
-        }
-      }
+        });
+      });
 
       urlInput.focus();
     })();

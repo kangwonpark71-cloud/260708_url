@@ -28,12 +28,9 @@ app.get('/favicon.ico', (_req: Request, res: Response): void => {
   res.status(204).end();
 });
 
-app.post('/api/shorten', (req: Request, res: Response): void => {
-  const { url } = req.body;
-
+function createShortUrl(req: Request, url: string): { shortUrl: string; shortKey: string } | { error: string } {
   if (!url || typeof url !== 'string') {
-    res.status(400).json({ error: 'URL is required' });
-    return;
+    return { error: 'URL is required' };
   }
 
   let targetUrl = url.trim();
@@ -44,8 +41,7 @@ app.post('/api/shorten', (req: Request, res: Response): void => {
     }
     new URL(targetUrl);
   } catch {
-    res.status(400).json({ error: 'Invalid URL format' });
-    return;
+    return { error: 'Invalid URL format' };
   }
 
   const shortKey = nanoid();
@@ -53,11 +49,29 @@ app.post('/api/shorten', (req: Request, res: Response): void => {
   try {
     const record = insertUrl(shortKey, targetUrl);
     const shortUrl = `${req.protocol}://${req.get('host')}/${record.short_key}`;
-    res.json({ short_url: shortUrl, short_key: record.short_key });
+    return { shortUrl, shortKey: record.short_key };
   } catch (err) {
     console.error('Failed to create short URL:', err);
-    res.status(500).json({ error: 'Failed to create short URL' });
+    return { error: 'Failed to create short URL' };
   }
+}
+
+app.post('/api/shorten', (req: Request, res: Response): void => {
+  const result = createShortUrl(req, req.body.url);
+  if ('error' in result) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json({ short_url: result.shortUrl, short_key: result.shortKey });
+});
+
+app.post('/shorten', (req: Request, res: Response): void => {
+  const result = createShortUrl(req, req.body.url);
+  if ('error' in result) {
+    res.redirect(302, '/?error=' + encodeURIComponent(result.error));
+    return;
+  }
+  res.redirect(302, '/?short=' + encodeURIComponent(result.shortUrl) + '&key=' + encodeURIComponent(result.shortKey));
 });
 
 app.get('/:shortKey', (req: Request, res: Response): void => {
