@@ -13,8 +13,7 @@ const nanoid = customAlphabet(
   7
 );
 
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} host=${req.get('host')} proto=${req.protocol}`);
+app.use((_req, res, next) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.set('Pragma', 'no-cache');
   res.set('Expires', '0');
