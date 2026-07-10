@@ -127,14 +127,20 @@
     <h1>🔗 URL Shortener</h1>
     <p class="subtitle">Paste a long URL to make it short</p>
 
-    <div class="input-group">
-      <input
-        type="url"
-        id="urlInput"
-        placeholder="https://example.com/very/long/url"
-      />
-      <button type="button" id="submitBtn">Shorten</button>
-    </div>
+    <form id="shortenForm" onsubmit="return false" style="margin:0;padding:0">
+      <div class="input-group">
+        <input
+          type="text"
+          id="urlInput"
+          placeholder="https://example.com/very/long/url"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+        />
+        <button type="submit" id="submitBtn">Shorten</button>
+      </div>
+    </form>
 
     <div id="errorMsg" style="margin-top:0.5rem;display:none"></div>
 
@@ -156,61 +162,105 @@
       }
       log('PAGE_LOADED page_id=' + PAGE_ID + ' url=' + location.href);
 
-      // Detect page unload (navigation/reload)
+      // Detect page unload
       window.addEventListener('beforeunload', function() {
-        log('BEFOREUNLOAD fired! page_id=' + PAGE_ID);
-      });
-      window.addEventListener('unload', function() {
-        log('UNLOAD fired!');
+        log('BEFOREUNLOAD page_id=' + PAGE_ID);
       });
 
-      // Detect popstate (back/forward navigation)
+      // Detect popstate
       window.addEventListener('popstate', function() {
-        log('POPSTATE fired!');
+        log('POPSTATE fired');
       });
 
+      var shortenForm = document.getElementById('shortenForm');
       var urlInput = document.getElementById('urlInput');
       var submitBtn = document.getElementById('submitBtn');
       var resultBox = document.getElementById('resultBox');
       var errorMsg = document.getElementById('errorMsg');
       var isLoading = false;
+      var STORAGE_KEY = 'url_shortener_last_result';
+      var STORAGE_TTL = 60000; // 60 seconds
+
+      // RESTORE result from localStorage if page was reloaded
+      try {
+        var saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          var parsed = JSON.parse(saved);
+          if (parsed && parsed.html && parsed.timestamp && (Date.now() - parsed.timestamp < STORAGE_TTL)) {
+            resultBox.innerHTML = parsed.html;
+            resultBox.style.display = 'block';
+            attachCopyListener(parsed.shortUrl);
+            log('RESTORED from localStorage, age=' + (Date.now() - parsed.timestamp) + 'ms');
+          } else {
+            localStorage.removeItem(STORAGE_KEY);
+            log('localStorage expired or invalid, removed');
+          }
+        }
+      } catch(e) {
+        log('localStorage read error: ' + e);
+      }
+
+      function saveToStorage(html, shortUrl) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            html: html,
+            shortUrl: shortUrl,
+            timestamp: Date.now()
+          }));
+          log('saved to localStorage');
+        } catch(e) {
+          log('localStorage write error: ' + e);
+        }
+      }
+
+      function clearStorage() {
+        try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
+      }
 
       // MutationObserver: watch resultBox for ANY changes
       var observer = new MutationObserver(function(mutations) {
         mutations.forEach(function(m) {
-          log('MUTATION type=' + m.type + ' target=' + m.target.id + ' added=' + m.addedNodes.length + ' removed=' + m.removedNodes.length + ' attr=' + (m.attributeName || 'none'));
+          log('MUTATION type=' + m.type + ' added=' + m.addedNodes.length + ' removed=' + m.removedNodes.length + ' attr=' + (m.attributeName || 'none'));
           if (m.type === 'attributes' && m.attributeName === 'style') {
-            log('  resultBox style changed to: ' + resultBox.getAttribute('style'));
+            log('  display=' + resultBox.style.display + ' html_len=' + resultBox.innerHTML.length);
           }
         });
       });
       observer.observe(resultBox, { attributes: true, childList: true, subtree: true, attributeOldValue: true });
-      log('MutationObserver attached to resultBox');
 
-      // MutationObserver on entire body
-      var bodyObserver = new MutationObserver(function(mutations) {
-        mutations.forEach(function(m) {
-          if (m.type === 'childList' && m.removedNodes.length > 0) {
-            for (var i = 0; i < m.removedNodes.length; i++) {
-              var n = m.removedNodes[i];
-              if (n.nodeType === 1) log('BODY_CHILD_REMOVED tag=' + n.tagName + ' id=' + n.id);
+      function attachCopyListener(shortUrl) {
+        var copyBtn = document.getElementById('copyBtn');
+        if (copyBtn) {
+          copyBtn.addEventListener('click', function() {
+            try {
+              navigator.clipboard.writeText(shortUrl).then(function() {
+                copyBtn.textContent = 'Copied!';
+                copyBtn.style.background = '#d4edda';
+                copyBtn.style.color = '#155724';
+              });
+            } catch(e) {
+              var ta = document.createElement('textarea');
+              ta.value = shortUrl;
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              copyBtn.textContent = 'Copied!';
+              copyBtn.style.background = '#d4edda';
+              copyBtn.style.color = '#155724';
             }
-          }
-        });
-      });
-      bodyObserver.observe(document.body, { childList: true, subtree: true });
-      log('Body-level MutationObserver attached');
+          });
+        }
+      }
 
-      // Watch for hash changes
-      window.addEventListener('hashchange', function() {
-        log('HASHCHANGE new_hash=' + location.hash);
-      });
-
-      function setResult(html) {
-        log('setResult called, html length=' + (html ? html.length : 0));
+      function setResult(html, shortUrl) {
+        log('setResult html_len=' + (html ? html.length : 0));
         resultBox.innerHTML = html;
         resultBox.style.display = html ? 'block' : 'none';
-        log('resultBox display=' + resultBox.style.display + ' innerHTML length=' + resultBox.innerHTML.length);
+        if (html && shortUrl) {
+          saveToStorage(html, shortUrl);
+        }
+        log('resultBox: display=' + resultBox.style.display + ' childCount=' + resultBox.childNodes.length);
       }
 
       function setError(msg) {
@@ -220,27 +270,36 @@
         errorMsg.style.display = msg ? 'block' : 'none';
       }
 
+      // Handle form submit (covers both button click and Enter key)
+      shortenForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        log('form SUBMIT event');
+        handleShorten();
+      });
+
       async function handleShorten() {
         log('handleShorten START isLoading=' + isLoading);
         if (isLoading) return;
         var url = urlInput.value.trim();
-        if (!url) { log('handleShorten: empty URL, returning'); return; }
+        if (!url) { log('empty URL'); return; }
 
         isLoading = true;
+        clearStorage();
         setError('');
-        setResult('');
+        setResult('', null);
 
         submitBtn.disabled = true;
         submitBtn.textContent = 'Shortening...';
 
         try {
-          log('fetch POST /api/shorten url=' + url);
+          log('fetch POST /api/shorten');
           var res = await fetch('/api/shorten', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: url })
           });
-          log('fetch response status=' + res.status + ' ok=' + res.ok);
+          log('fetch status=' + res.status);
 
           var data = await res.json();
           log('fetch data: ' + JSON.stringify(data));
@@ -252,49 +311,22 @@
 
           var shortUrl = data.short_url;
           var escaped = shortUrl.replace(/&/g,'&amp;').replace(/</g,'&lt;');
-          log('setResult with short_url=' + shortUrl);
 
-          setResult(
+          var html =
             '<div style="font-size:0.8rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.4rem">Your shortened URL</div>' +
             '<div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' +
-              '<a href="' + escaped + '" target="_blank" style="color:#667eea;text-decoration:none;font-weight:500;word-break:break-all">' + escaped + '</a>' +
-              '<button id="copyBtn" style="background:#e8eaff;border:none;border-radius:6px;padding:0.4rem 0.8rem;font-size:0.8rem;cursor:pointer;color:#667eea;font-weight:500;white-space:nowrap;flex-shrink:0">Copy</button>' +
+              '<a href="' + escaped + '" target="_blank" rel="noopener" style="color:#667eea;text-decoration:none;font-weight:500;word-break:break-all">' + escaped + '</a>' +
+              '<button id="copyBtn" type="button" style="background:#e8eaff;border:none;border-radius:6px;padding:0.4rem 0.8rem;font-size:0.8rem;cursor:pointer;color:#667eea;font-weight:500;white-space:nowrap;flex-shrink:0">Copy</button>' +
             '</div>' +
-            '<div style="margin-top:0.5rem;font-size:0.75rem;color:#aaa">page:' + PAGE_ID + ' | short:' + data.short_key + '</div>'
-          );
+            '<div style="margin-top:0.5rem;font-size:0.75rem;color:#aaa">page:' + PAGE_ID + ' | key:' + data.short_key + '</div>';
 
-          log('resultBox after set: display=' + resultBox.style.display + ' childNodes=' + resultBox.childNodes.length);
-
-          var copyBtn = document.getElementById('copyBtn');
-          if (copyBtn) {
-            copyBtn.addEventListener('click', function() {
-              try {
-                navigator.clipboard.writeText(shortUrl).then(function() {
-                  copyBtn.textContent = 'Copied!';
-                  copyBtn.style.background = '#d4edda';
-                  copyBtn.style.color = '#155724';
-                });
-              } catch(e) {
-                var ta = document.createElement('textarea');
-                ta.value = shortUrl;
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
-                copyBtn.textContent = 'Copied!';
-                copyBtn.style.background = '#d4edda';
-                copyBtn.style.color = '#155724';
-              }
-            });
-            log('copyBtn listener attached');
-          } else {
-            log('WARNING: copyBtn not found in DOM after setResult!');
-          }
+          setResult(html, shortUrl);
+          attachCopyListener(shortUrl);
 
           urlInput.value = '';
-          log('handleShorten SUCCESS');
+          log('SUCCESS');
         } catch (err) {
-          log('handleShorten ERROR: ' + err);
+          log('ERROR: ' + err);
           setError('Network error. Please try again.');
         } finally {
           isLoading = false;
@@ -302,15 +334,6 @@
           submitBtn.textContent = 'Shorten';
         }
       }
-
-      submitBtn.addEventListener('click', function() { log('submitBtn CLICK'); handleShorten(); });
-      urlInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          log('Enter KEYDOWN');
-          handleShorten();
-        }
-      });
 
       urlInput.focus();
       log('init complete');
