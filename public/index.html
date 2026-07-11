@@ -158,18 +158,8 @@
       var errorMsg = document.getElementById('errorMsg');
       var isLoading = false;
 
-      var params = new URLSearchParams(location.search);
-      var serverShort = params.get('short');
-      var serverKey = params.get('key');
-      var serverError = params.get('error');
-
-      if (serverShort && serverKey) {
-        var escaped = serverShort.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-        renderResult(escaped, serverKey, serverShort);
-        history.replaceState(null, '', '/');
-      } else if (serverError) {
-        showError(serverError);
-        history.replaceState(null, '', '/');
+      if (resultBox.innerHTML.trim()) {
+        attachCopyBtnFromDOM();
       }
 
       restoreFromStorage();
@@ -181,6 +171,7 @@
       });
 
       function restoreFromStorage() {
+        if (resultBox.innerHTML.trim()) return;
         try {
           var saved = localStorage.getItem(STORAGE_KEY);
           if (!saved) return;
@@ -246,6 +237,13 @@
             ok();
           }
         });
+      }
+
+      function attachCopyBtnFromDOM() {
+        var link = resultBox.querySelector('a[target="_blank"]');
+        if (link) {
+          attachCopyBtn(link.href);
+        }
       }
 
       function showError(msg) {

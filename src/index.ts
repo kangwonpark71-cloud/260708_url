@@ -3,6 +3,8 @@ import path from 'path';
 import { customAlphabet } from 'nanoid';
 import { insertUrl, getByKey, incrementClickCount } from './db';
 
+import fs from 'fs';
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -65,13 +67,40 @@ app.post('/api/shorten', (req: Request, res: Response): void => {
   res.json({ short_url: result.shortUrl, short_key: result.shortKey });
 });
 
+function renderPage(result?: { shortUrl: string; shortKey: string }, error?: string): string {
+  const templatePath = path.join(__dirname, '..', 'public', 'index.html');
+  const html = fs.readFileSync(templatePath, 'utf-8');
+
+  let resultHtml = '';
+  if (result) {
+    const escaped = result.shortUrl.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    resultHtml =
+      `<div class="result-box">` +
+        `<div class="result-label">Your shortened URL</div>` +
+        `<div class="result-url">` +
+          `<a href="${escaped}" target="_blank" rel="noopener">${escaped}</a>` +
+          `<button id="copyBtn" class="copy-btn" type="button">Copy</button>` +
+        `</div>` +
+      `</div>`;
+  }
+
+  let errorHtml = '';
+  if (error) {
+    errorHtml = `<div class="error">${error.replace(/</g, '&lt;')}</div>`;
+  }
+
+  return html
+    .replace('<div id="resultBox" style="display:none"></div>', `<div id="resultBox" style="display:block">${resultHtml}</div>`)
+    .replace('<div id="errorMsg" class="error" style="display:none"></div>', `<div id="errorMsg" class="error" style="display:${error ? 'block' : 'none'}">${errorHtml}</div>`);
+}
+
 app.post('/shorten', (req: Request, res: Response): void => {
   const result = createShortUrl(req, req.body.url);
   if ('error' in result) {
-    res.redirect(302, '/?error=' + encodeURIComponent(result.error));
+    res.send(renderPage(undefined, result.error));
     return;
   }
-  res.redirect(302, '/?short=' + encodeURIComponent(result.shortUrl) + '&key=' + encodeURIComponent(result.shortKey));
+  res.send(renderPage({ shortUrl: result.shortUrl, shortKey: result.shortKey }));
 });
 
 app.get('/:shortKey', (req: Request, res: Response): void => {
